@@ -1,0 +1,80 @@
+'use client';
+
+import React from 'react';
+import { motion } from 'framer-motion';
+import { Check, Trash2 } from 'lucide-react';
+import { ListItem } from '../context/AppContext.tsx';
+import { cn, CategoryColorTheme } from '../lib/utils.ts';
+
+interface ItemRowProps {
+  item: ListItem;
+  themeColor: CategoryColorTheme;
+  onToggle: (itemId: number, completed: boolean) => void;
+  onDelete: (itemId: number) => void;
+}
+
+export const ItemRow: React.FC<ItemRowProps> = ({
+  item,
+  themeColor,
+  onToggle,
+  onDelete,
+}) => {
+  return (
+    <motion.li
+      layout
+      initial={{ opacity: 0, y: 6 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, scale: 0.96, transition: { duration: 0.15 } }}
+      transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
+      className="group flex items-center justify-between gap-2 rounded-2xl px-2 py-1 hover:bg-zinc-100/70 dark:hover:bg-zinc-800/50 transition-colors"
+    >
+      {/* Área clicável principal com área de toque mínima de 44x44px */}
+      <button
+        type="button"
+        onClick={() => onToggle(item.id, !item.completed)}
+        className="flex-1 min-h-[44px] flex items-center gap-3 text-left cursor-pointer select-none"
+      >
+        <span
+          className={cn(
+            'w-5 h-5 rounded-lg border flex items-center justify-center transition-all duration-150 shrink-0',
+            item.completed
+              ? `${themeColor.checkboxActive} text-white`
+              : 'border-zinc-300 dark:border-zinc-700 bg-white dark:bg-zinc-900 group-hover:border-zinc-400 dark:group-hover:border-zinc-500'
+          )}
+        >
+          <motion.span
+            initial={false}
+            animate={{
+              scale: item.completed ? 1 : 0,
+              opacity: item.completed ? 1 : 0,
+            }}
+            transition={{ duration: 0.15 }}
+          >
+            <Check className="w-3.5 h-3.5 stroke-[2.75]" />
+          </motion.span>
+        </span>
+
+        <span
+          className={cn(
+            'text-sm leading-snug transition-all duration-150 break-words',
+            item.completed
+              ? 'line-through text-zinc-400 dark:text-zinc-500'
+              : 'text-zinc-800 dark:text-zinc-100 font-medium'
+          )}
+        >
+          {item.title}
+        </span>
+      </button>
+
+      {/* Botão de excluir com hitbox de 44x44px para usabilidade mobile */}
+      <button
+        type="button"
+        onClick={() => onDelete(item.id)}
+        aria-label={`Remover ${item.title}`}
+        className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-xl text-zinc-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-500/10 sm:opacity-0 sm:group-hover:opacity-100 focus:opacity-100 transition-all cursor-pointer shrink-0"
+      >
+        <Trash2 className="w-4 h-4" />
+      </button>
+    </motion.li>
+  );
+};
