@@ -3,16 +3,23 @@
 import React, { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  CheckCircle2,
-  ShoppingBag,
-  Sparkles,
+  ShoppingCart,
   Briefcase,
-  Heart,
+  GraduationCap,
   Home,
-  BookOpen,
+  Wallet,
   Plane,
-  Folder,
+  HeartPulse,
+  Cpu,
+  Gift,
+  Dumbbell,
+  Flame,
+  User,
+  ShoppingBag,
+  Target,
+  BookOpen,
   Trash2,
+  Pencil,
   ChevronDown,
 } from 'lucide-react';
 import { CategoryWithItems } from '../context/AppContext.tsx';
@@ -20,40 +27,54 @@ import { getCategoryColorTheme, cn } from '../lib/utils.ts';
 import { ItemRow } from './ItemRow.tsx';
 import { QuickAddInput } from './QuickAddInput.tsx';
 
-export const CATEGORY_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
-  'check-circle': CheckCircle2,
-  'shopping-bag': ShoppingBag,
-  sparkles: Sparkles,
-  briefcase: Briefcase,
-  heart: Heart,
-  home: Home,
-  book: BookOpen,
-  plane: Plane,
-  folder: Folder,
-};
+// Exatamente 15 ícones distintos do lucide-react
+export const CATEGORY_ICON_OPTIONS = [
+  { key: 'shopping-cart', label: 'Compras', Icon: ShoppingCart },
+  { key: 'briefcase', label: 'Trabalho', Icon: Briefcase },
+  { key: 'graduation-cap', label: 'Estudos', Icon: GraduationCap },
+  { key: 'home', label: 'Casa', Icon: Home },
+  { key: 'wallet', label: 'Finanças', Icon: Wallet },
+  { key: 'plane', label: 'Viagens', Icon: Plane },
+  { key: 'heart-pulse', label: 'Saúde', Icon: HeartPulse },
+  { key: 'cpu', label: 'Tecnologia', Icon: Cpu },
+  { key: 'gift', label: 'Presentes', Icon: Gift },
+  { key: 'dumbbell', label: 'Exercícios', Icon: Dumbbell },
+  { key: 'flame', label: 'Prioridade', Icon: Flame },
+  { key: 'user', label: 'Pessoal', Icon: User },
+  { key: 'shopping-bag', label: 'Mercado', Icon: ShoppingBag },
+  { key: 'target', label: 'Metas', Icon: Target },
+  { key: 'book-open', label: 'Leitura', Icon: BookOpen },
+] as const;
+
+export const CATEGORY_ICONS: Record<string, React.ComponentType<{ className?: string }>> =
+  Object.fromEntries(CATEGORY_ICON_OPTIONS.map((opt) => [opt.key, opt.Icon]));
 
 interface CategoryCardProps {
   category: CategoryWithItems;
+  onEditCategory: (category: CategoryWithItems) => void;
+  onDeleteCategory: (categoryId: number) => Promise<void>;
   onAddItem: (categoryId: number, title: string) => Promise<void>;
   onToggleItem: (categoryId: number, itemId: number, completed: boolean) => Promise<void>;
+  onUpdateItemTitle: (categoryId: number, itemId: number, title: string) => Promise<void>;
   onDeleteItem: (categoryId: number, itemId: number) => Promise<void>;
-  onDeleteCategory: (categoryId: number) => Promise<void>;
 }
 
 export const CategoryCard: React.FC<CategoryCardProps> = ({
   category,
+  onEditCategory,
+  onDeleteCategory,
   onAddItem,
   onToggleItem,
+  onUpdateItemTitle,
   onDeleteItem,
-  onDeleteCategory,
 }) => {
   const [isExpanded, setIsExpanded] = useState(true);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   const themeColor = getCategoryColorTheme(category.color);
-  const IconComponent = CATEGORY_ICONS[category.icon] || Folder;
+  const IconComponent = CATEGORY_ICONS[category.icon] || ShoppingCart;
 
-  // Ordena automaticamente: itens pendentes no topo, concluídos movem-se suavemente para o fim da lista
+  // Ordena itens pendentes primeiro e concluídos no fim da lista
   const sortedItems = useMemo(() => {
     return [...category.items].sort((a, b) => {
       if (a.completed === b.completed) return 0;
@@ -99,37 +120,45 @@ export const CategoryCard: React.FC<CategoryCardProps> = ({
                 {completedItems}/{totalItems} {totalItems === 1 ? 'item' : 'itens'}
               </span>
               <span aria-hidden="true">·</span>
-              <span>{progressPercent}% concluído</span>
+              <span>{progressPercent}%</span>
             </div>
           </div>
         </div>
 
-        {/* Exclusão sem fricção com confirmação discreta inline */}
-        <div className="flex items-center gap-1 shrink-0">
+        {/* Ações únicas e claras da categoria (Editar, Excluir com confirmação discreta, Recolher) */}
+        <div className="flex items-center gap-0.5 shrink-0">
           {confirmDelete ? (
             <div className="flex items-center gap-1 bg-rose-500/10 rounded-xl px-2 py-1">
               <button
                 type="button"
                 onClick={() => onDeleteCategory(category.id)}
-                className="min-h-[36px] px-2.5 text-xs font-semibold text-rose-600 dark:text-rose-400 hover:underline cursor-pointer whitespace-nowrap"
+                className="min-h-[34px] px-2 text-xs font-semibold text-rose-600 dark:text-rose-400 hover:underline cursor-pointer whitespace-nowrap"
               >
-                Confirmar
+                Excluir
               </button>
               <button
                 type="button"
                 onClick={() => setConfirmDelete(false)}
-                className="min-h-[36px] px-2 text-xs font-medium text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 cursor-pointer whitespace-nowrap"
+                className="min-h-[34px] px-2 text-xs font-medium text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 cursor-pointer whitespace-nowrap"
               >
-                Não
+                Cancelar
               </button>
             </div>
           ) : (
             <>
               <button
                 type="button"
+                onClick={() => onEditCategory(category)}
+                aria-label={`Editar categoria ${category.name}`}
+                className="min-h-[40px] min-w-[40px] flex items-center justify-center rounded-xl text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors cursor-pointer"
+              >
+                <Pencil className="w-4 h-4" />
+              </button>
+              <button
+                type="button"
                 onClick={() => setConfirmDelete(true)}
                 aria-label={`Excluir categoria ${category.name}`}
-                className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-xl text-zinc-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors cursor-pointer"
+                className="min-h-[40px] min-w-[40px] flex items-center justify-center rounded-xl text-zinc-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors cursor-pointer"
               >
                 <Trash2 className="w-4 h-4" />
               </button>
@@ -137,7 +166,7 @@ export const CategoryCard: React.FC<CategoryCardProps> = ({
                 type="button"
                 onClick={() => setIsExpanded((prev) => !prev)}
                 aria-label={isExpanded ? 'Recolher categoria' : 'Expandir categoria'}
-                className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-xl text-zinc-400 hover:text-zinc-800 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors cursor-pointer"
+                className="min-h-[40px] min-w-[40px] flex items-center justify-center rounded-xl text-zinc-400 hover:text-zinc-800 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors cursor-pointer"
               >
                 <ChevronDown
                   className={cn(
@@ -161,7 +190,7 @@ export const CategoryCard: React.FC<CategoryCardProps> = ({
         />
       </div>
 
-      {/* Área Expansível com QuickAddInput Sempre Visível + Lista de Itens */}
+      {/* Área Expansível com QuickAddInput e Itens */}
       <AnimatePresence initial={false}>
         {isExpanded && (
           <motion.div
@@ -181,7 +210,7 @@ export const CategoryCard: React.FC<CategoryCardProps> = ({
             {sortedItems.length === 0 ? (
               <div className="py-7 text-center">
                 <p className="text-xs text-zinc-400 dark:text-zinc-500">
-                  Lista vazia. Digite acima e pressione Enter para adicionar.
+                  Nenhum item cadastrado. Digite acima e pressione Enter para adicionar.
                 </p>
               </div>
             ) : (
@@ -194,6 +223,9 @@ export const CategoryCard: React.FC<CategoryCardProps> = ({
                       themeColor={themeColor}
                       onToggle={(itemId, completed) =>
                         onToggleItem(category.id, itemId, completed)
+                      }
+                      onUpdateTitle={(itemId, title) =>
+                        onUpdateItemTitle(category.id, itemId, title)
                       }
                       onDelete={(itemId) => onDeleteItem(category.id, itemId)}
                     />

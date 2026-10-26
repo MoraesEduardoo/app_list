@@ -4,8 +4,9 @@ import { boolean, integer, pgTable, serial, text, timestamp } from 'drizzle-orm/
 export const users = pgTable('users', {
   id: serial('id').primaryKey(),
   uid: text('uid').notNull().unique(),
-  email: text('email').notNull(),
+  email: text('email').notNull().unique(),
   displayName: text('display_name'),
+  passwordHash: text('password_hash'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 
@@ -16,7 +17,7 @@ export const categories = pgTable('categories', {
     .notNull(),
   name: text('name').notNull(),
   color: text('color').notNull().default('indigo'),
-  icon: text('icon').notNull().default('folder'),
+  icon: text('icon').notNull().default('shopping-cart'),
   createdAt: timestamp('created_at').defaultNow().notNull(),
 });
 

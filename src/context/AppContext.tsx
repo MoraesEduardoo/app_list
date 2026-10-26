@@ -5,7 +5,6 @@ import {
   onAuthStateChanged,
   signInWithPopup,
   signOut,
-  User,
 } from 'firebase/auth';
 import { auth, googleAuthProvider } from '../lib/firebase.ts';
 
@@ -26,94 +25,14 @@ export interface CategoryWithItems {
   items: ListItem[];
 }
 
-const DEFAULT_DEMO_CATEGORIES: CategoryWithItems[] = [
-  {
-    id: 1,
-    name: 'Tarefas do Dia',
-    color: 'indigo',
-    icon: 'check-circle',
-    createdAt: new Date().toISOString(),
-    items: [
-      {
-        id: 101,
-        categoryId: 1,
-        title: 'Revisar arquitetura do projeto Next.js App Router',
-        completed: true,
-        createdAt: new Date().toISOString(),
-      },
-      {
-        id: 102,
-        categoryId: 1,
-        title: 'Testar animações de conclusão com Framer Motion',
-        completed: false,
-        createdAt: new Date().toISOString(),
-      },
-      {
-        id: 103,
-        categoryId: 1,
-        title: 'Validar instalação do PWA na tela inicial do celular',
-        completed: false,
-        createdAt: new Date().toISOString(),
-      },
-    ],
-  },
-  {
-    id: 2,
-    name: 'Compras & Mercado',
-    color: 'emerald',
-    icon: 'shopping-bag',
-    createdAt: new Date().toISOString(),
-    items: [
-      {
-        id: 201,
-        categoryId: 2,
-        title: 'Café especial em grãos 500g',
-        completed: false,
-        createdAt: new Date().toISOString(),
-      },
-      {
-        id: 202,
-        categoryId: 2,
-        title: 'Azeite de oliva extra virgem',
-        completed: true,
-        createdAt: new Date().toISOString(),
-      },
-      {
-        id: 203,
-        categoryId: 2,
-        title: 'Castanhas-do-pará e amêndoas',
-        completed: false,
-        createdAt: new Date().toISOString(),
-      },
-    ],
-  },
-  {
-    id: 3,
-    name: 'Metas & Lançamento',
-    color: 'amber',
-    icon: 'sparkles',
-    createdAt: new Date().toISOString(),
-    items: [
-      {
-        id: 301,
-        categoryId: 3,
-        title: 'Configurar Row Level Security (RLS) no banco PostgreSQL',
-        completed: true,
-        createdAt: new Date().toISOString(),
-      },
-      {
-        id: 302,
-        categoryId: 3,
-        title: 'Publicar versão 1.0 em produção na Vercel',
-        completed: false,
-        createdAt: new Date().toISOString(),
-      },
-    ],
-  },
-];
+export interface SessionUser {
+  uid: string;
+  email: string;
+  displayName?: string | null;
+}
 
 interface AppContextValue {
-  user: User | null;
+  user: SessionUser | null;
   authLoading: boolean;
   dataLoading: boolean;
   errorBanner: string | null;
@@ -121,328 +40,414 @@ interface AppContextValue {
   theme: 'light' | 'dark';
   toggleTheme: () => void;
   categories: CategoryWithItems[];
-  signInWithGoogle: () => Promise<void>;
+  signInWithGoogle: () => Promise<boolean>;
+  loginWithEmail: (email: string, password: string) => Promise<{ ok: boolean; error?: string }>;
+  signupWithEmail: (name: string, email: string, password: string) => Promise<{ ok: boolean; error?: string }>;
   signOutUser: () => Promise<void>;
   createCategory: (name: string, color: string, icon: string) => Promise<void>;
+  updateCategory: (categoryId: number, name: string, color: string, icon: string) => Promise<void>;
   deleteCategory: (categoryId: number) => Promise<void>;
   addItem: (categoryId: number, title: string) => Promise<void>;
   toggleItem: (categoryId: number, itemId: number, completed: boolean) => Promise<void>;
+  updateItemTitle: (categoryId: number, itemId: number, title: string) => Promise<void>;
   deleteItem: (categoryId: number, itemId: number) => Promise<void>;
 }
 
 const AppContext = createContext<AppContextValue | undefined>(undefined);
 
-const LOCAL_STORAGE_CATEGORIES_KEY = 'applist_pwa_categories_v2';
-const LOCAL_STORAGE_THEME_KEY = 'applist_pwa_theme_v1';
-
 export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  const [user, setUser] = useState<User | null>(null);
-  const [idToken, setIdToken] = useState<string | null>(null);
+  const [user, setUser] = useState<SessionUser | null>(null);
+  const [bearerToken, setBearerToken] = useState<string | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
-  const [dataLoading, setDataLoading] = useState(true);
+  const [dataLoading, setDataLoading] = useState(false);
   const [errorBanner, setErrorBanner] = useState<string | null>(null);
   const [theme, setTheme] = useState<'light' | 'dark'>('dark');
-  const [categories, setCategories] = useState<CategoryWithItems[]>(DEFAULT_DEMO_CATEGORIES);
-
-  // Inicializar Tema Dark/Light
-  useEffect(() => {
-    try {
-      const savedTheme = localStorage.getItem(LOCAL_STORAGE_THEME_KEY) as 'light' | 'dark' | null;
-      const initialTheme = savedTheme || 'dark';
-      setTheme(initialTheme);
-      document.documentElement.classList.toggle('dark', initialTheme === 'dark');
-    } catch {
-      document.documentElement.classList.add('dark');
-    }
-  }, []);
+  // Sem mocks e sem localStorage para dados de listas: 100% sincronizado via nuvem PostgreSQL
+  const [categories, setCategories] = useState<CategoryWithItems[]>([]);
 
   const toggleTheme = useCallback(() => {
     setTheme((prev) => {
       const next = prev === 'dark' ? 'light' : 'dark';
-      try {
-        localStorage.setItem(LOCAL_STORAGE_THEME_KEY, next);
-      } catch {}
       document.documentElement.classList.toggle('dark', next === 'dark');
       return next;
     });
   }, []);
 
-  // Monitorar Autenticação Firebase
+  // Verificar sessão existente (Cookie HTTP-only de sessão PostgreSQL ou Firebase Auth)
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
-      setUser(firebaseUser);
-      if (firebaseUser) {
-        try {
-          const token = await firebaseUser.getIdToken();
-          setIdToken(token);
-        } catch {
-          setIdToken(null);
-        }
-      } else {
-        setIdToken(null);
-      }
-      setAuthLoading(false);
-    });
+    let mounted = true;
 
-    return () => unsubscribe();
+    async function checkExistingSession() {
+      try {
+        const res = await fetch('/api/auth', { credentials: 'include' });
+        if (res.ok) {
+          const data = await res.json();
+          if (mounted && data.user) {
+            setUser({
+              uid: data.user.uid,
+              email: data.user.email,
+              displayName: data.user.name,
+            });
+            setAuthLoading(false);
+            return;
+          }
+        }
+      } catch {
+        // Ignorar erro inicial de rede
+      }
+
+      const unsubscribe = onAuthStateChanged(auth, async (firebaseUser) => {
+        if (!mounted) return;
+        if (firebaseUser) {
+          try {
+            const token = await firebaseUser.getIdToken();
+            setBearerToken(token);
+            setUser({
+              uid: firebaseUser.uid,
+              email: firebaseUser.email || `${firebaseUser.uid}@user.local`,
+              displayName: firebaseUser.displayName,
+            });
+          } catch {
+            setBearerToken(null);
+            setUser(null);
+          }
+        }
+        setAuthLoading(false);
+      });
+
+      return () => unsubscribe();
+    }
+
+    checkExistingSession();
+    return () => {
+      mounted = false;
+    };
   }, []);
 
-  // Carregar Categorias (Cloud SQL quando autenticado, ou Cache Local para uso imediato/offline)
+  const getAuthHeaders = useCallback(async (): Promise<Record<string, string>> => {
+    const headers: Record<string, string> = {
+      'Content-Type': 'application/json',
+    };
+    if (auth.currentUser) {
+      const freshToken = await auth.currentUser.getIdToken();
+      headers.Authorization = `Bearer ${freshToken}`;
+    } else if (bearerToken) {
+      headers.Authorization = `Bearer ${bearerToken}`;
+    }
+    return headers;
+  }, [bearerToken]);
+
+  // Carregar Categorias e Itens diretamente do PostgreSQL em nuvem
   useEffect(() => {
     let active = true;
 
-    async function loadData() {
+    async function fetchCloudCategories() {
       if (authLoading) return;
-      setDataLoading(true);
+      if (!user) {
+        setCategories([]);
+        setDataLoading(false);
+        return;
+      }
 
-      if (user && idToken) {
-        try {
-          const token = await user.getIdToken();
-          const res = await fetch('/api/categories', {
-            headers: {
-              Authorization: `Bearer ${token}`,
-            },
-          });
-          if (res.ok) {
-            const data = await res.json();
-            if (active && Array.isArray(data.categories)) {
-              setCategories(data.categories);
-              try {
-                localStorage.setItem(
-                  LOCAL_STORAGE_CATEGORIES_KEY,
-                  JSON.stringify(data.categories)
-                );
-              } catch {}
-            }
-          } else {
-            throw new Error('Falha ao carregar categorias do servidor.');
-          }
-        } catch (err) {
-          console.error('Erro ao buscar categorias:', err);
-          if (active) {
-            setErrorBanner('Usando cache local temporariamente.');
-          }
-        } finally {
-          if (active) setDataLoading(false);
+      setDataLoading(true);
+      try {
+        const headers = await getAuthHeaders();
+        const res = await fetch('/api/categories', {
+          headers,
+          credentials: 'include',
+        });
+        if (!res.ok) {
+          throw new Error('Não foi possível sincronizar suas listas com o servidor.');
         }
-      } else {
-        try {
-          const saved = localStorage.getItem(LOCAL_STORAGE_CATEGORIES_KEY);
-          if (saved) {
-            const parsed = JSON.parse(saved);
-            if (Array.isArray(parsed) && parsed.length > 0 && active) {
-              setCategories(parsed);
-            }
-          }
-        } catch {}
+        const data = await res.json();
+        if (active && Array.isArray(data.categories)) {
+          setCategories(data.categories);
+        }
+      } catch (err: unknown) {
+        if (active) {
+          const msg = err instanceof Error ? err.message : 'Erro ao carregar listas.';
+          setErrorBanner(msg);
+        }
+      } finally {
         if (active) setDataLoading(false);
       }
     }
 
-    loadData();
+    fetchCloudCategories();
     return () => {
       active = false;
     };
-  }, [user, idToken, authLoading]);
+  }, [user, authLoading, getAuthHeaders]);
 
-  const persistLocal = (nextCategories: CategoryWithItems[]) => {
-    try {
-      localStorage.setItem(LOCAL_STORAGE_CATEGORIES_KEY, JSON.stringify(nextCategories));
-    } catch {}
-  };
-
-  const signInWithGoogle = async () => {
+  const signInWithGoogle = async (): Promise<boolean> => {
     setErrorBanner(null);
     try {
       const cred = await signInWithPopup(auth, googleAuthProvider);
       const token = await cred.user.getIdToken();
-      setIdToken(token);
+      setBearerToken(token);
+      setUser({
+        uid: cred.user.uid,
+        email: cred.user.email || `${cred.user.uid}@user.local`,
+        displayName: cred.user.displayName,
+      });
+      return true;
     } catch (error: unknown) {
       console.error('Erro no login Google:', error);
-      setErrorBanner(
-        'Não foi possível concluir o login com Google na janela popup. Você pode continuar utilizando o app normalmente.'
-      );
+      setErrorBanner('Popup bloqueado ou cancelado. Utilize o login por E-mail e Senha abaixo.');
+      return false;
+    }
+  };
+
+  const loginWithEmail = async (
+    email: string,
+    password: string
+  ): Promise<{ ok: boolean; error?: string }> => {
+    setErrorBanner(null);
+    try {
+      const res = await fetch('/api/auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ action: 'login', email, password }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        return { ok: false, error: data.error || 'Falha ao autenticar.' };
+      }
+      setBearerToken(data.token);
+      setUser({
+        uid: data.user.uid,
+        email: data.user.email,
+        displayName: data.user.name,
+      });
+      return { ok: true };
+    } catch {
+      return { ok: false, error: 'Erro de conexão com o servidor.' };
+    }
+  };
+
+  const signupWithEmail = async (
+    name: string,
+    email: string,
+    password: string
+  ): Promise<{ ok: boolean; error?: string }> => {
+    setErrorBanner(null);
+    try {
+      const res = await fetch('/api/auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ action: 'signup', name, email, password }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        return { ok: false, error: data.error || 'Não foi possível criar a conta.' };
+      }
+      setBearerToken(data.token);
+      setUser({
+        uid: data.user.uid,
+        email: data.user.email,
+        displayName: data.user.name,
+      });
+      return { ok: true };
+    } catch {
+      return { ok: false, error: 'Erro de conexão com o servidor.' };
     }
   };
 
   const signOutUser = async () => {
     setErrorBanner(null);
     try {
-      await signOut(auth);
-      setIdToken(null);
+      await fetch('/api/auth', { method: 'DELETE', credentials: 'include' });
+      await signOut(auth).catch(() => {});
+      setBearerToken(null);
+      setUser(null);
+      setCategories([]);
     } catch (error) {
-      console.error('Erro ao sair:', error);
+      console.error('Erro ao encerrar sessão:', error);
     }
   };
 
   const createCategory = async (name: string, color: string, icon: string) => {
     setErrorBanner(null);
-    if (user) {
-      try {
-        const token = await user.getIdToken();
-        const res = await fetch('/api/categories', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({ name, color, icon }),
-        });
-        if (!res.ok) throw new Error('Falha ao criar categoria');
-        const { category } = await res.json();
-        setCategories((prev) => {
-          const next = [...prev, category];
-          persistLocal(next);
-          return next;
-        });
-        return;
-      } catch (err) {
-        console.error(err);
-        setErrorBanner('Não foi possível sincronizar no servidor. Salvo localmente.');
-      }
-    }
-
-    const fallbackCat: CategoryWithItems = {
-      id: Date.now(),
-      name,
-      color,
-      icon,
-      createdAt: new Date().toISOString(),
-      items: [],
-    };
-    setCategories((prev) => {
-      const next = [...prev, fallbackCat];
-      persistLocal(next);
-      return next;
+    const headers = await getAuthHeaders();
+    const res = await fetch('/api/categories', {
+      method: 'POST',
+      headers,
+      credentials: 'include',
+      body: JSON.stringify({ name, color, icon }),
     });
+    const data = await res.json();
+    if (!res.ok) {
+      const msg = data.error || 'Erro ao criar categoria no servidor.';
+      setErrorBanner(msg);
+      throw new Error(msg);
+    }
+    setCategories((prev) => [...prev, data.category]);
+  };
+
+  const updateCategory = async (
+    categoryId: number,
+    name: string,
+    color: string,
+    icon: string
+  ) => {
+    setErrorBanner(null);
+    const headers = await getAuthHeaders();
+    const res = await fetch(`/api/categories/${categoryId}`, {
+      method: 'PATCH',
+      headers,
+      credentials: 'include',
+      body: JSON.stringify({ name, color, icon }),
+    });
+    const data = await res.json();
+    if (!res.ok) {
+      const msg = data.error || 'Erro ao atualizar categoria.';
+      setErrorBanner(msg);
+      throw new Error(msg);
+    }
+    setCategories((prev) =>
+      prev.map((cat) =>
+        cat.id === categoryId
+          ? {
+              ...cat,
+              name: data.category.name,
+              color: data.category.color,
+              icon: data.category.icon,
+            }
+          : cat
+      )
+    );
   };
 
   const deleteCategory = async (categoryId: number) => {
     setErrorBanner(null);
     const previous = categories;
-    setCategories((prev) => {
-      const next = prev.filter((c) => c.id !== categoryId);
-      persistLocal(next);
-      return next;
-    });
+    setCategories((prev) => prev.filter((c) => c.id !== categoryId));
 
-    if (user) {
-      try {
-        const token = await user.getIdToken();
-        const res = await fetch(`/api/categories/${categoryId}`, {
-          method: 'DELETE',
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        });
-        if (!res.ok) throw new Error('Erro ao excluir categoria');
-      } catch (err) {
-        console.error(err);
-        setCategories(previous);
-        setErrorBanner('Erro ao remover categoria no banco de dados.');
-      }
+    try {
+      const headers = await getAuthHeaders();
+      const res = await fetch(`/api/categories/${categoryId}`, {
+        method: 'DELETE',
+        headers,
+        credentials: 'include',
+      });
+      if (!res.ok) throw new Error('Falha ao excluir categoria no banco de dados.');
+    } catch (err: unknown) {
+      setCategories(previous);
+      setErrorBanner(err instanceof Error ? err.message : 'Erro ao excluir categoria.');
     }
   };
 
   const addItem = async (categoryId: number, title: string) => {
     setErrorBanner(null);
-    if (user) {
-      try {
-        const token = await user.getIdToken();
-        const res = await fetch('/api/items', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({ categoryId, title }),
-        });
-        if (!res.ok) throw new Error('Erro ao criar item');
-        const { item } = await res.json();
-        setCategories((prev) => {
-          const next = prev.map((cat) =>
-            cat.id === categoryId ? { ...cat, items: [item, ...cat.items] } : cat
-          );
-          persistLocal(next);
-          return next;
-        });
-        return;
-      } catch (err) {
-        console.error(err);
-      }
-    }
-
-    const newItem: ListItem = {
-      id: Date.now(),
-      categoryId,
-      title,
-      completed: false,
-      createdAt: new Date().toISOString(),
-    };
-    setCategories((prev) => {
-      const next = prev.map((cat) =>
-        cat.id === categoryId ? { ...cat, items: [newItem, ...cat.items] } : cat
-      );
-      persistLocal(next);
-      return next;
+    const headers = await getAuthHeaders();
+    const res = await fetch('/api/items', {
+      method: 'POST',
+      headers,
+      credentials: 'include',
+      body: JSON.stringify({ categoryId, title }),
     });
+    const data = await res.json();
+    if (!res.ok) {
+      const msg = data.error || 'Erro ao adicionar item.';
+      setErrorBanner(msg);
+      throw new Error(msg);
+    }
+    setCategories((prev) =>
+      prev.map((cat) =>
+        cat.id === categoryId ? { ...cat, items: [data.item, ...cat.items] } : cat
+      )
+    );
   };
 
   const toggleItem = async (categoryId: number, itemId: number, completed: boolean) => {
     setErrorBanner(null);
-    setCategories((prev) => {
-      const next = prev.map((cat) => {
-        if (cat.id !== categoryId) return cat;
-        const updatedItems = cat.items.map((item) =>
-          item.id === itemId ? { ...item, completed } : item
-        );
-        return { ...cat, items: updatedItems };
-      });
-      persistLocal(next);
-      return next;
-    });
+    const previous = categories;
+    setCategories((prev) =>
+      prev.map((cat) =>
+        cat.id === categoryId
+          ? {
+              ...cat,
+              items: cat.items.map((item) =>
+                item.id === itemId ? { ...item, completed } : item
+              ),
+            }
+          : cat
+      )
+    );
 
-    if (user) {
-      try {
-        const token = await user.getIdToken();
-        await fetch(`/api/items/${itemId}`, {
-          method: 'PATCH',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({ completed }),
-        });
-      } catch (err) {
-        console.error(err);
-      }
+    try {
+      const headers = await getAuthHeaders();
+      const res = await fetch(`/api/items/${itemId}`, {
+        method: 'PATCH',
+        headers,
+        credentials: 'include',
+        body: JSON.stringify({ completed }),
+      });
+      if (!res.ok) throw new Error('Falha ao sincronizar status do item.');
+    } catch (err: unknown) {
+      setCategories(previous);
+      setErrorBanner(err instanceof Error ? err.message : 'Erro ao atualizar item.');
+    }
+  };
+
+  const updateItemTitle = async (categoryId: number, itemId: number, title: string) => {
+    setErrorBanner(null);
+    const trimmed = title.trim();
+    if (!trimmed) return;
+
+    const previous = categories;
+    setCategories((prev) =>
+      prev.map((cat) =>
+        cat.id === categoryId
+          ? {
+              ...cat,
+              items: cat.items.map((item) =>
+                item.id === itemId ? { ...item, title: trimmed } : item
+              ),
+            }
+          : cat
+      )
+    );
+
+    try {
+      const headers = await getAuthHeaders();
+      const res = await fetch(`/api/items/${itemId}`, {
+        method: 'PATCH',
+        headers,
+        credentials: 'include',
+        body: JSON.stringify({ title: trimmed }),
+      });
+      if (!res.ok) throw new Error('Falha ao atualizar título do item.');
+    } catch (err: unknown) {
+      setCategories(previous);
+      setErrorBanner(err instanceof Error ? err.message : 'Erro ao editar item.');
     }
   };
 
   const deleteItem = async (categoryId: number, itemId: number) => {
     setErrorBanner(null);
-    setCategories((prev) => {
-      const next = prev.map((cat) =>
+    const previous = categories;
+    setCategories((prev) =>
+      prev.map((cat) =>
         cat.id === categoryId
           ? { ...cat, items: cat.items.filter((item) => item.id !== itemId) }
           : cat
-      );
-      persistLocal(next);
-      return next;
-    });
+      )
+    );
 
-    if (user) {
-      try {
-        const token = await user.getIdToken();
-        await fetch(`/api/items/${itemId}`, {
-          method: 'DELETE',
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        });
-      } catch (err) {
-        console.error(err);
-      }
+    try {
+      const headers = await getAuthHeaders();
+      const res = await fetch(`/api/items/${itemId}`, {
+        method: 'DELETE',
+        headers,
+        credentials: 'include',
+      });
+      if (!res.ok) throw new Error('Falha ao remover item do banco de dados.');
+    } catch (err: unknown) {
+      setCategories(previous);
+      setErrorBanner(err instanceof Error ? err.message : 'Erro ao remover item.');
     }
   };
 
@@ -458,11 +463,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         toggleTheme,
         categories,
         signInWithGoogle,
+        loginWithEmail,
+        signupWithEmail,
         signOutUser,
         createCategory,
+        updateCategory,
         deleteCategory,
         addItem,
         toggleItem,
+        updateItemTitle,
         deleteItem,
       }}
     >

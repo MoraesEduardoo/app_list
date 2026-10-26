@@ -1,20 +1,21 @@
 import { db } from './index.ts';
 import { users, categories, items } from './schema.ts';
-import { eq, and, asc, desc } from 'drizzle-orm';
+import { eq, and, asc } from 'drizzle-orm';
 
 export async function getOrCreateUser(uid: string, email: string, displayName?: string | null) {
   try {
+    const normalizedEmail = email.trim().toLowerCase();
     const result = await db
       .insert(users)
       .values({
         uid,
-        email,
+        email: normalizedEmail,
         displayName: displayName || null,
       })
       .onConflictDoUpdate({
         target: users.uid,
         set: {
-          email,
+          email: normalizedEmail,
           displayName: displayName || null,
         },
       })
@@ -24,6 +25,57 @@ export async function getOrCreateUser(uid: string, email: string, displayName?: 
   } catch (error) {
     console.error('Database query failed in getOrCreateUser:', error);
     throw new Error('Falha ao sincronizar perfil de usuário.', { cause: error });
+  }
+}
+
+export async function findUserByEmail(email: string) {
+  try {
+    const normalizedEmail = email.trim().toLowerCase();
+    const result = await db
+      .select()
+      .from(users)
+      .where(eq(users.email, normalizedEmail));
+    return result[0] || null;
+  } catch (error) {
+    console.error('Database query failed in findUserByEmail:', error);
+    throw new Error('Falha ao buscar usuário.', { cause: error });
+  }
+}
+
+export async function findUserByUid(uid: string) {
+  try {
+    const result = await db
+      .select()
+      .from(users)
+      .where(eq(users.uid, uid));
+    return result[0] || null;
+  } catch (error) {
+    console.error('Database query failed in findUserByUid:', error);
+    throw new Error('Falha ao buscar sessão de usuário.', { cause: error });
+  }
+}
+
+export async function createEmailUser(
+  uid: string,
+  email: string,
+  passwordHash: string,
+  displayName?: string | null
+) {
+  try {
+    const normalizedEmail = email.trim().toLowerCase();
+    const result = await db
+      .insert(users)
+      .values({
+        uid,
+        email: normalizedEmail,
+        passwordHash,
+        displayName: displayName || normalizedEmail.split('@')[0],
+      })
+      .returning();
+    return result[0];
+  } catch (error) {
+    console.error('Database query failed in createEmailUser:', error);
+    throw new Error('Falha ao cadastrar novo usuário.', { cause: error });
   }
 }
 
@@ -39,7 +91,7 @@ export async function getUserCategoriesWithItems(uid: string) {
       .select()
       .from(items)
       .where(eq(items.userUid, uid))
-      .orderBy(asc(items.completed), desc(items.createdAt));
+      .orderBy(asc(items.completed), asc(items.createdAt));
 
     return userCategories.map((cat) => ({
       ...cat,
@@ -75,6 +127,29 @@ export async function createCategoryForUser(
   } catch (error) {
     console.error('Database query failed in createCategoryForUser:', error);
     throw new Error('Falha ao criar categoria.', { cause: error });
+  }
+}
+
+export async function updateCategoryForUser(
+  uid: string,
+  categoryId: number,
+  updates: { name: string; color: string; icon: string }
+) {
+  try {
+    const result = await db
+      .update(categories)
+      .set({
+        name: updates.name,
+        color: updates.color,
+        icon: updates.icon,
+      })
+      .where(and(eq(categories.id, categoryId), eq(categories.userUid, uid)))
+      .returning();
+
+    return result[0] || null;
+  } catch (error) {
+    console.error('Database query failed in updateCategoryForUser:', error);
+    throw new Error('Falha ao atualizar categoria.', { cause: error });
   }
 }
 
@@ -115,22 +190,30 @@ export async function createItemForUser(
   }
 }
 
-export async function toggleItemForUser(
+export async function updateItemForUser(
   uid: string,
   itemId: number,
-  completed: boolean
+  updates: { completed?: boolean; title?: string }
 ) {
   try {
+    const payload: Partial<{ completed: boolean; title: string }> = {};
+    if (typeof updates.completed === 'boolean') {
+      payload.completed = updates.completed;
+    }
+    if (typeof updates.title === 'string' && updates.title.trim()) {
+      payload.title = updates.title.trim();
+    }
+
     const result = await db
       .update(items)
-      .set({ completed })
+      .set(payload)
       .where(and(eq(items.id, itemId), eq(items.userUid, uid)))
       .returning();
 
     return result[0] || null;
   } catch (error) {
-    console.error('Database query failed in toggleItemForUser:', error);
-    throw new Error('Falha ao atualizar status do item.', { cause: error });
+    console.error('Database query failed in updateItemForUser:', error);
+    throw new Error('Falha ao atualizar item.', { cause: error });
   }
 }
 
@@ -145,79 +228,5 @@ export async function deleteItemForUser(uid: string, itemId: number) {
   } catch (error) {
     console.error('Database query failed in deleteItemForUser:', error);
     throw new Error('Falha ao remover item.', { cause: error });
-  }
-}
-
-export async function seedInitialCategoriesIfEmpty(uid: string) {
-  try {
-    const existing = await db
-      .select()
-      .from(categories)
-      .where(eq(categories.userUid, uid));
-
-    if (existing.length > 0) {
-      return;
-    }
-
-    const insertedCats = await db
-      .insert(categories)
-      .values([
-        {
-          userUid: uid,
-          name: 'Tarefas do Dia',
-          color: 'indigo',
-          icon: 'check-circle',
-        },
-        {
-          userUid: uid,
-          name: 'Mercado & Casa',
-          color: 'emerald',
-          icon: 'shopping-bag',
-        },
-        {
-          userUid: uid,
-          name: 'Metas & Projetos',
-          color: 'amber',
-          icon: 'sparkles',
-        },
-      ])
-      .returning();
-
-    if (insertedCats.length >= 3) {
-      await db.insert(items).values([
-        {
-          userUid: uid,
-          categoryId: insertedCats[0].id,
-          title: 'Revisar arquitetura do projeto Next.js',
-          completed: true,
-        },
-        {
-          userUid: uid,
-          categoryId: insertedCats[0].id,
-          title: 'Validar instalação do PWA no celular',
-          completed: false,
-        },
-        {
-          userUid: uid,
-          categoryId: insertedCats[1].id,
-          title: 'Café especial em grãos 500g',
-          completed: false,
-        },
-        {
-          userUid: uid,
-          categoryId: insertedCats[1].id,
-          title: 'Azeite de oliva extra virgem',
-          completed: true,
-        },
-        {
-          userUid: uid,
-          categoryId: insertedCats[2].id,
-          title: 'Publicar versão 1.0 na Vercel',
-          completed: false,
-        },
-      ]);
-    }
-  } catch (error) {
-    console.error('Database query failed in seedInitialCategoriesIfEmpty:', error);
   }
 }
