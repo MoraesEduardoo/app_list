@@ -17,7 +17,7 @@ import {
   User as UserIcon,
 } from 'lucide-react';
 import { useApp } from '../../src/context/AppContext.tsx';
-import { Navbar } from '../../src/components/Navbar.tsx';
+import { Header } from '../../src/components/Header.tsx';
 import { CategoryCard } from '../../src/components/CategoryCard.tsx';
 import { CreateCategoryModal } from '../../src/components/CreateCategoryModal.tsx';
 import { PWAInstallButton } from '../../src/components/PWAInstallButton.tsx';
@@ -86,7 +86,7 @@ export default function DashboardPage() {
 
   return (
     <div className="min-h-screen flex flex-col bg-zinc-50 dark:bg-zinc-950 text-zinc-900 dark:text-zinc-100 pb-20 md:pb-12">
-      <Navbar
+      <Header
         activeSection={activeSection}
         onSelectSection={setActiveSection}
         onOpenNewCategory={() => setIsModalOpen(true)}

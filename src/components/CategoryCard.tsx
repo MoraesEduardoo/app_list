@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   CheckCircle2,
@@ -12,13 +12,13 @@ import {
   BookOpen,
   Plane,
   Folder,
-  Plus,
   Trash2,
   ChevronDown,
 } from 'lucide-react';
 import { CategoryWithItems } from '../context/AppContext.tsx';
 import { getCategoryColorTheme, cn } from '../lib/utils.ts';
 import { ItemRow } from './ItemRow.tsx';
+import { QuickAddInput } from './QuickAddInput.tsx';
 
 export const CATEGORY_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
   'check-circle': CheckCircle2,
@@ -47,41 +47,33 @@ export const CategoryCard: React.FC<CategoryCardProps> = ({
   onDeleteItem,
   onDeleteCategory,
 }) => {
-  const [newItemTitle, setNewItemTitle] = useState('');
   const [isExpanded, setIsExpanded] = useState(true);
   const [confirmDelete, setConfirmDelete] = useState(false);
-  const [submitting, setSubmitting] = useState(false);
 
   const themeColor = getCategoryColorTheme(category.color);
   const IconComponent = CATEGORY_ICONS[category.icon] || Folder;
 
+  // Ordena automaticamente: itens pendentes no topo, concluídos movem-se suavemente para o fim da lista
+  const sortedItems = useMemo(() => {
+    return [...category.items].sort((a, b) => {
+      if (a.completed === b.completed) return 0;
+      return a.completed ? 1 : -1;
+    });
+  }, [category.items]);
+
   const totalItems = category.items.length;
   const completedItems = category.items.filter((i) => i.completed).length;
   const progressPercent = totalItems > 0 ? Math.round((completedItems / totalItems) * 100) : 0;
-
-  const handleAddSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const trimmed = newItemTitle.trim();
-    if (!trimmed || submitting) return;
-
-    setSubmitting(true);
-    setNewItemTitle('');
-    try {
-      await onAddItem(category.id, trimmed);
-    } finally {
-      setSubmitting(false);
-    }
-  };
 
   return (
     <motion.article
       layout
       initial={{ opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, scale: 0.96, transition: { duration: 0.18 } }}
+      exit={{ opacity: 0, scale: 0.96, transition: { duration: 0.16 } }}
       transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
       className={cn(
-        'flex flex-col rounded-3xl border border-zinc-200/80 dark:border-zinc-800/80 bg-white/90 dark:bg-zinc-900/85 backdrop-blur-md p-5 sm:p-6 shadow-xs transition-colors',
+        'flex flex-col rounded-3xl border border-zinc-200/80 dark:border-zinc-800/80 bg-white/95 dark:bg-zinc-900/90 backdrop-blur-md p-5 sm:p-6 shadow-xs transition-colors',
         themeColor.borderAccent
       )}
     >
@@ -102,10 +94,9 @@ export const CategoryCard: React.FC<CategoryCardProps> = ({
             <h2 className="text-base sm:text-lg font-semibold tracking-tight text-zinc-900 dark:text-zinc-100 truncate">
               {category.name}
             </h2>
-            {/* Metadados limpos sem pílulas (Zero-Pill Discipline + Tabular Numerals) */}
             <div className="mt-0.5 flex items-center gap-1.5 text-xs text-zinc-500 dark:text-zinc-400 font-mono tabular-nums">
               <span>
-                {completedItems} de {totalItems} {totalItems === 1 ? 'item' : 'itens'}
+                {completedItems}/{totalItems} {totalItems === 1 ? 'item' : 'itens'}
               </span>
               <span aria-hidden="true">·</span>
               <span>{progressPercent}% concluído</span>
@@ -113,7 +104,7 @@ export const CategoryCard: React.FC<CategoryCardProps> = ({
           </div>
         </div>
 
-        {/* Controles do Card (Expandir / Excluir com confirmação fluida) */}
+        {/* Exclusão sem fricção com confirmação discreta inline */}
         <div className="flex items-center gap-1 shrink-0">
           {confirmDelete ? (
             <div className="flex items-center gap-1 bg-rose-500/10 rounded-xl px-2 py-1">
@@ -122,14 +113,14 @@ export const CategoryCard: React.FC<CategoryCardProps> = ({
                 onClick={() => onDeleteCategory(category.id)}
                 className="min-h-[36px] px-2.5 text-xs font-semibold text-rose-600 dark:text-rose-400 hover:underline cursor-pointer whitespace-nowrap"
               >
-                Excluir
+                Confirmar
               </button>
               <button
                 type="button"
                 onClick={() => setConfirmDelete(false)}
                 className="min-h-[36px] px-2 text-xs font-medium text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-zinc-100 cursor-pointer whitespace-nowrap"
               >
-                Cancelar
+                Não
               </button>
             </div>
           ) : (
@@ -145,7 +136,7 @@ export const CategoryCard: React.FC<CategoryCardProps> = ({
               <button
                 type="button"
                 onClick={() => setIsExpanded((prev) => !prev)}
-                aria-label={isExpanded ? 'Recolher lista' : 'Expandir lista'}
+                aria-label={isExpanded ? 'Recolher categoria' : 'Expandir categoria'}
                 className="min-h-[44px] min-w-[44px] flex items-center justify-center rounded-xl text-zinc-400 hover:text-zinc-800 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors cursor-pointer"
               >
                 <ChevronDown
@@ -160,17 +151,17 @@ export const CategoryCard: React.FC<CategoryCardProps> = ({
         </div>
       </div>
 
-      {/* Barra de Progresso Sutil */}
+      {/* Barra de Progresso */}
       <div className="mt-4 h-1.5 w-full rounded-full bg-zinc-100 dark:bg-zinc-800 overflow-hidden">
         <motion.div
           initial={false}
           animate={{ width: `${progressPercent}%` }}
-          transition={{ duration: 0.25, ease: 'easeOut' }}
+          transition={{ duration: 0.2, ease: 'easeOut' }}
           className={cn('h-full rounded-full', themeColor.progressFill)}
         />
       </div>
 
-      {/* Corpo Expansível com Input Rápido e Lista de Itens */}
+      {/* Área Expansível com QuickAddInput Sempre Visível + Lista de Itens */}
       <AnimatePresence initial={false}>
         {isExpanded && (
           <motion.div
@@ -180,39 +171,23 @@ export const CategoryCard: React.FC<CategoryCardProps> = ({
             transition={{ duration: 0.16 }}
             className="mt-4 flex-1 flex flex-col"
           >
-            {/* Input de Adição Rápida */}
-            <form onSubmit={handleAddSubmit} className="relative flex items-center gap-2">
-              <input
-                type="text"
-                value={newItemTitle}
-                onChange={(e) => setNewItemTitle(e.target.value)}
-                placeholder="Adicionar novo item..."
-                className="w-full min-h-[44px] rounded-2xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50/70 dark:bg-zinc-950/60 pl-4 pr-12 py-2.5 text-sm text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-400 dark:placeholder:text-zinc-500 focus:outline-none focus:border-zinc-400 dark:focus:border-zinc-600 transition-colors"
-              />
-              <button
-                type="submit"
-                disabled={!newItemTitle.trim() || submitting}
-                aria-label="Adicionar item"
-                className={cn(
-                  'absolute right-1.5 min-h-[36px] min-w-[36px] flex items-center justify-center rounded-xl text-white transition-opacity cursor-pointer disabled:opacity-30',
-                  themeColor.progressFill
-                )}
-              >
-                <Plus className="w-4 h-4" />
-              </button>
-            </form>
+            <QuickAddInput
+              categoryId={category.id}
+              categoryName={category.name}
+              themeColor={themeColor}
+              onAdd={onAddItem}
+            />
 
-            {/* Lista de Itens */}
-            {category.items.length === 0 ? (
-              <div className="py-8 text-center">
+            {sortedItems.length === 0 ? (
+              <div className="py-7 text-center">
                 <p className="text-xs text-zinc-400 dark:text-zinc-500">
-                  Nenhum item nesta categoria. Digite acima para adicionar.
+                  Lista vazia. Digite acima e pressione Enter para adicionar.
                 </p>
               </div>
             ) : (
               <ul className="mt-3 divide-y divide-zinc-100 dark:divide-zinc-800/60">
                 <AnimatePresence initial={false}>
-                  {category.items.map((item) => (
+                  {sortedItems.map((item) => (
                     <ItemRow
                       key={item.id}
                       item={item}
