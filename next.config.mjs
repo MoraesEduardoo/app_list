@@ -2,6 +2,7 @@
 const nextConfig = {
   output: 'standalone',
   reactStrictMode: true,
+  serverExternalPackages: ['firebase-admin', 'pg'],
   experimental: {
     optimizePackageImports: ['lucide-react', 'framer-motion'],
   },
